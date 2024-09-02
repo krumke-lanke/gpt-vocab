@@ -5,7 +5,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_TOKEN"))
 
 def translate_and_define(word) -> str:
     response = client.chat.completions.create(
-      model="gpt-4-turbo",
+      model="gpt-4o",
       response_format={ "type": "json_object" },
       messages=[
         {"role": "system", "content": "You are a English vocabulary assistant. You should help the user to retrieve the given word Russian translation, English definition and provide a short, a useful an example of usage this word and return as an output of JSON object of three fields: translation, definition, example"},
@@ -28,5 +28,3 @@ def validate_answer(data):
     for field, field_type in required_fields.items():
         if field not in data:
             raise ValueError(f"Missing required field: {field}")
-
-    print("answer is valid")

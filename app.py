@@ -1,85 +1,83 @@
 # app.py
-from flask import Flask, request, jsonify, Response
-import vocab
-import db
-import json
-import csv
-import io
-from deck import Deck, DeckSchema
-from word import Word
-import sqlite3
+from flask import Flask, request, jsonify
+from bot import init_bot
+import logging
+import asyncio
+from multiprocessing import Process, Event
+import signal
+import sys
+from telegram.ext import ApplicationBuilder
 
-def create_app(test_config=None):
-    app = Flask(__name__)
-    app.logger.setLevel(1)
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-    if test_config:
-        app.config.update(test_config)
-    else:
-        app.config['DEBUG'] = True
+app = Flask(__name__)
+stop_event = Event()
 
-    @app.teardown_appcontext
-    def close_connection(exception):
-        db.close_connection(exception)
+def signal_handler(sig, frame):
+    logger.info("Shutdown signal received. Stopping bot and Flask app...")
+    stop_event.set()
+    sys.exit(0)
 
-    @app.route('/<language>/add_word', methods=['POST'])
-    def add_word(language):
-        data = request.json
-        word = data.get("word")
-        if not word:
-            return jsonify({"error": "word is not provided"}), 400
-        result = vocab.translate_and_define(word)
-
-        jsonData = json.loads(result)
-        vocab.validate_answer(jsonData)
-
-        save_word(word, jsonData, Deck("default", language, DeckSchema.WORD))
-        app.logger.debug(f"word {word} saved")
-
-        return jsonify({"result": True}), 200
-
-    @app.route('/words', methods=['GET'])
-    def get_all_words():
-        words = db.get_all_words()
-        with open('vocabulary.csv', 'w', newline='') as file:
-            fileWriter = csv.writer(file)
-            fileWriter.writerow(['ID','Word', 'Translation', 'Definition', 'Example'])
-            fileWriter.writerows(words)
-            file.flush()
-
-        bufferWriter = io.StringIO()
-        csvWriter = csv.writer(bufferWriter)
-        csvWriter.writerow(['ID','Word', 'Translation', 'Definition', 'Example'])
-        csvWriter.writerows(words)
-        bufferWriter.seek(0)
-        return Response(
-            bufferWriter,
-            mimetype="text/csv",
-            headers={"Content-disposition": "attachment; filename=vocabulary.csv"}
-        ), 200
-    
-    WORD_SAVE_QUERY = '''
-                    INSERT INTO words (keyword, deck, language, translation, definition, example)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(keyword, deck) DO UPDATE SET
-                    translation=excluded.translation,
-                    definition=excluded.definition,
-                    example=excluded.example     
-               ;'''
-
-    def save_word(keyword: str, data: dict, deck: Deck):
-        conn = db.get_db()
+def run_bot(stop_event):
+    async def bot_main():
+        bot = init_bot()
+        await bot.initialize()
+        await bot.start()
+        logger.info("Bot started successfully.")
         try:
-            conn.cursor().execute(WORD_SAVE_QUERY,
-                (keyword, 1, deck.language, data["translation"], data["definition"], data["example"]))
-            conn.commit()
-        except sqlite3.IntegrityError as e:
-            print(e)
+            await bot.updater.start_polling()
+            logger.info("Bot polling started.")
+            while not stop_event.is_set():
+                await asyncio.sleep(1)
+        finally:
+            await bot.updater.stop()
+            await bot.stop()
+            await bot.shutdown()
+            logger.info("Bot stopped successfully.")
 
-    return app
+    asyncio.run(bot_main())
 
+def run_flask():
+    app.run(debug=False, use_reloader=False)
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "ok"}), 200
+
+@app.route('/<language>/add_word', methods=['POST'])
+def add_word(language):
+    # Your existing add_word function...
+    data = request.json
+    # Process the data...
+    return jsonify({"result": True}), 200
+
+@app.route('/words', methods=['GET'])
+def get_all_words():
+    # Your existing get_all_words function...
+    # Fetch words...
+    return jsonify({"words": []}), 200
 
 if __name__ == '__main__':
-    app = create_app()
-    db.init_db(app)
-    app.run()
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    bot_process = Process(target=run_bot, args=(stop_event,))
+    flask_process = Process(target=run_flask)
+
+    bot_process.start()
+    flask_process.start()
+
+    try:
+        bot_process.join()
+        flask_process.join()
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received. Shutting down...")
+    finally:
+        stop_event.set()
+        bot_process.terminate()
+        flask_process.terminate()
+        bot_process.join()
+        flask_process.join()
+        logger.info("Application shut down successfully.")

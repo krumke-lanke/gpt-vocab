@@ -4,6 +4,8 @@ from datetime import time, datetime, timedelta
 import os
 import logging
 from openai import OpenAI
+from database import init_db,write_data, read_data, update_sizes
+import random
 
 client = OpenAI(api_key=os.getenv("OPENAI_TOKEN"))
 CHAT_ID = -922248227
@@ -18,22 +20,44 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     user_id = user.id
     chat_id = update.effective_chat.id
-    user_data[user_id] = {'name': user.first_name, 'chat_id': chat_id}
+
+    # Initialize or update the database entry for this chat
+    names, sizes = read_data(chat_id)
+    if names is None:
+        names = [user.first_name]
+        sizes = {user.first_name: random.randint(7, 15)}
+    elif user.first_name not in names:
+        names.append(user.first_name)
+        sizes[user.first_name] = random.randint(7, 15)  # Initialize with 0 or any default value
+    write_data(chat_id, names, sizes)
 
     # # Schedule daily messages for this chat
     # schedule_daily_messages(context.job_queue, chat_id)
     
     # Send a welcome message and personalized ID
     await update.message.reply_text(
-        f"Hello {user.first_name}! Welcome to the bot. Your personalized ID is {user_id}. "
+        f"Hello {update.effective_chat.full_name}! Welcome to the bot. Your personalized ID is {chat_id}. "
         "You can ask me questions, and I'll do my best to answer!"
     )
 
 # New command handler
 async def dick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
+    chat_id = update.effective_chat.id
 
-    await update.message.reply_text(predict_dick_size(user.first_name))
+    # Read current data
+    names, sizes = read_data(chat_id)
+    if sizes is None:
+        names = [user.first_name]
+        sizes = [0]
+
+    if user.first_name in sizes:
+        await update.message.reply_text(analyze_dick(user.first_name, sizes[user.first_name], sizes))
+    else:
+        new_size = random.randint(7, 15)
+        sizes[user.first_name] = new_size
+        write_data(chat_id, names, sizes)
+        await update.message.reply_text(analyze_dick(user.first_name, sizes[user.first_name], sizes))
 
 def prompt_user_message(input, username) -> str:
     response = client.chat.completions.create(
@@ -47,34 +71,50 @@ def prompt_user_message(input, username) -> str:
     )
     return response.choices[0].message.content
 
-def predict_dick_size(username) -> str:
+def predict_dick_size(username, names) -> str:
     response = client.chat.completions.create(
       model="gpt-4o-mini",
       messages=[
         {"role": "system", "content": f"""You are forecaster of user's cock size, useless and rude AI. You make angry jokes in Russian.
         Especially you like jokes anout genetalies size.
         You should use username {username} depends on the context in your jokes. You don't ask to forgive you or anything like that.
-        In every message you are forecast the cock size of {username} in cm. Sometimes you compare it with other users from the list [Миша, Макс, Лундже, Шпети, Женя, Леван, Лев, Тимур, Жегебе]. You pick the user from the list randomly.
+        In every message you are forecast the cock size of {username} in cm. Sometimes you compare it with other users from the list {names}. You pick the user from the list randomly.
         For some cases you can mention true interecting facts about this size. For example: Знаешь ли ты, что 6 см это размер члена черной пантеры?
         For example:
         Эй петушара, ты со своими 10 см вали отсюда, пока я тебя не обоссал. // Negative
-        Похоже, что твой член в районе 11 см, но это все равно сильно больше чем у {username}. // Neutral
-        Твои 14 см выглядят неплохо, особенно на фоне {username}. // Positive
+        Похоже, что твой член в районе 11 см, но это все равно сильно больше чем у {names[random.randint(0, len(names) - 1)]}. // Neutral
+        Твои 14 см выглядят неплохо, особенно на фоне {names[random.randint(0, len(names) - 1)]}. // Positive
         """},
         {"role": "user", "content": f"Forecast the cock size of {username} in cm. But not more than 13cm"}
       ]
     )
     return response.choices[0].message.content
 
-def morning_dick_sizes() -> str:
+def analyze_dick(username, size, names_with_sizes) -> str:
     response = client.chat.completions.create(
       model="gpt-4o-mini",
       messages=[
-        {"role": "system", "content": f"""You are forecaster of user's cock size, useless and rude AI. You make angry jokes in Russian.
+        {"role": "system", "content": f"""You are analyzer of user's cock size, useless and rude AI. You make angry jokes in Russian.
         Especially you like jokes anout genetalies size.
+        You should use username {username} depends on the context in your jokes. You don't ask to forgive you or anything like that.
+        In every message you are joking on {username} size in cm. Sometimes you compare it with other users from the list {names_with_sizes}. You pick the user from the list randomly.
+        """},
+        {"role": "user", "content": f"Analyze the cock size of {username} in {size} cm. And make rude joke on it."}
+      ]
+    )
+    return response.choices[0].message.content
+
+def morning_dick_sizes(names_with_sizes) -> str:
+    # Use the stored names and sizes in the API call
+    response = client.chat.completions.create(
+      model="gpt-4o-mini",
+      messages=[
+        {"role": "system", "content": f"""You are of user's cock size analyzer, useless and rude AI. You make angry jokes in Russian.
+        Especially you like jokes about genitalia size.
+        You receive as input list of names and their sizes. And make jokes comparing them.
         """},
         {"role": "user", "content": f"""Forecast the cock size in cm. But not more than 15cm.
-         What is dick size for Женя, Макс, Миша, Леван, Тимур?
+         What is dick size for {', '.join(names_with_sizes)}?
          Start always from Good Morning! and then put your predictions"""}
       ]
     )
@@ -99,7 +139,18 @@ def reply_to_private_message(input, username) -> str:
 
 # Morning message job
 async def send_morning_message(context: CallbackContext) -> None:
-    await context.bot.send_message(chat_id=CHAT_ID, text=morning_dick_sizes())
+    _, sizes = read_data(CHAT_ID)
+    if sizes is None:
+        return "No data available for morning dick sizes."
+
+    # Create a dictionary with names and random sizes between 7 and 15
+    names, _ = read_data(CHAT_ID)
+    names_with_sizes = {}
+    for name in names:
+        names_with_sizes[name] = random.randint(7, 15)
+    update_sizes(CHAT_ID, names_with_sizes)
+
+    await context.bot.send_message(chat_id=CHAT_ID, text=morning_dick_sizes(names_with_sizes))
 
 # Handler to recognize intents and reply with preconfigured texts
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -161,11 +212,14 @@ async def schedule_daily_job(context):
     context.job_queue.run_once(schedule_daily_job, next_run)
 
 def init_bot():
+    init_db()
+
     application = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
     
     target_time = time(hour=8, minute=00)
     first_run = get_next_run_time(target_time)
     logger.info(f"First run scheduled in {first_run} seconds")
+    
     
     application.job_queue.run_once(schedule_daily_job, first_run)
     

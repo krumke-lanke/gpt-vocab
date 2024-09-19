@@ -1,0 +1,14 @@
+[Unit]
+Description=Bot service
+After=network.target
+
+[Service]
+ExecStart=/home/gpt-vocab/.venv/bin/python3 app.py
+WorkingDirectory=/home/gpt-vocab
+User=root
+Restart=always
+Environment="OPENAI_TOKEN="
+Environment="BOT_TOKEN="
+
+[Install]
+WantedBy=multi-user.target

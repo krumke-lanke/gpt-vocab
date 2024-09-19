@@ -1,8 +1,7 @@
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, JobQueue, CallbackContext
-from datetime import time
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackContext
+from datetime import time, datetime, timedelta
 import os
-import random
 import logging
 from openai import OpenAI
 
@@ -41,7 +40,7 @@ def prompt_user_message(input, username) -> str:
       model="gpt-4o-mini",
       messages=[
         {"role": "system", "content": f"""You are impolite, useless and rude AI. You make angry jokes in Russian for any user input.
-        Especially you like jokes anout genetalies size, low income, and slavic roots. Be as rude and impolite as possible.
+        Especially you like jokes anout genetalies size. Be as rude, impolite and angry as possible.
         In some answers you can use username {username} depends on context to make jokes more personal when it is possible."""},
         {"role": "user", "content": f"{input}"}
       ]
@@ -67,6 +66,20 @@ def predict_dick_size(username) -> str:
     )
     return response.choices[0].message.content
 
+def morning_dick_sizes() -> str:
+    response = client.chat.completions.create(
+      model="gpt-4o-mini",
+      messages=[
+        {"role": "system", "content": f"""You are forecaster of user's cock size, useless and rude AI. You make angry jokes in Russian.
+        Especially you like jokes anout genetalies size.
+        """},
+        {"role": "user", "content": f"""Forecast the cock size in cm. But not more than 15cm.
+         What is dick size for Женя, Макс, Миша, Леван, Тимур?
+         Start always from Good Morning! and then put your predictions"""}
+      ]
+    )
+    return response.choices[0].message.content
+
 def reply_to_private_message(input, username) -> str:
     response = client.chat.completions.create(
       model="gpt-4o-mini",
@@ -74,7 +87,7 @@ def reply_to_private_message(input, username) -> str:
         {"role": "system", "content": f"""
             classify the user input to one of the following categories:
             - positive: the message is positive and happy
-            - negative: the message is negative and sad
+            - negative: the message is harmful and abuse
             - neutral: the message is neutral
             if it's negative, reply with rude message from the list ["ты охуел?", "ты че выебываешься?", "не пизди",  "ну ты и петухан"]
             if it's positive or neutral reply with emppty string
@@ -84,29 +97,16 @@ def reply_to_private_message(input, username) -> str:
     )
     return response.choices[0].message.content
 
-# Function to schedule messages to be sent twice a day
-def schedule_daily_messages(job_queue: JobQueue, chat_id: int):
-    morning_time = time(hour=8, minute=0, second=0)  # Set your preferred morning time
-    evening_time = time(hour=23, minute=47, second=0)  # Set your preferred evening time
-
-    job_queue.run_daily(send_morning_message, time=morning_time, chat_id=chat_id, name=str(chat_id) + "_morning")
-    job_queue.run_daily(send_evening_message, time=evening_time, chat_id=chat_id, name=str(chat_id) + "_evening")
-
 # Morning message job
 async def send_morning_message(context: CallbackContext) -> None:
-    chat_id = context.job.context
-    await context.bot.send_message(chat_id=chat_id, text="Good morning! Here's your first message of the day.")
-
-# Evening message job
-async def send_evening_message(context: CallbackContext) -> None:
-    chat_id = context.job.context
-    await context.bot.send_message(chat_id=chat_id, text="Good evening! Here's your second message of the day.")
+    await context.bot.send_message(chat_id=CHAT_ID, text=morning_dick_sizes())
 
 # Handler to recognize intents and reply with preconfigured texts
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text.lower()
     user_id = update.effective_user.id
     user = update.effective_user
+    
     # Check if the message is a reply
     if update.message.reply_to_message:
         # Get the original message that was replied to
@@ -143,17 +143,31 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 # Error handler
 async def error(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log Errors caused by Updates."""
-    context.bot.logger.warning(f'Update {update} caused error {context.error}')
+    logger.warning(f'Update {update} caused error {context.error}')
+
+def get_next_run_time(target_time):
+    now = datetime.now()
+    target = now.replace(hour=target_time.hour, minute=target_time.minute, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
+
+async def schedule_daily_job(context):
+    target_time = time(hour=8, minute=00)
+    next_run = get_next_run_time(target_time)
+    logger.info(f"Scheduling next run in {next_run} seconds")
+    await send_morning_message(context)
+    context.job.schedule_removal()
+    context.job_queue.run_once(schedule_daily_job, next_run)
 
 def init_bot():
-    token = os.getenv("BOT_TOKEN")
-    if not token:
-        raise ValueError("BOT_TOKEN environment variable is not set")
-
-    application = ApplicationBuilder().token(token).build()
-
-    # Schedule daily messages
-    schedule_daily_messages(application.job_queue, CHAT_ID)
+    application = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
+    
+    target_time = time(hour=8, minute=00)
+    first_run = get_next_run_time(target_time)
+    logger.info(f"First run scheduled in {first_run} seconds")
+    
+    application.job_queue.run_once(schedule_daily_job, first_run)
     
     # Command handlers
     application.add_handler(CommandHandler("start", start))

@@ -25,10 +25,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     names, sizes = read_data(chat_id)
     if names is None:
         names = [user.first_name]
-        sizes = {user.first_name: random.randint(7, 15)}
+        sizes = {user.first_name: random.randint(7, 12)}
     elif user.first_name not in names:
         names.append(user.first_name)
-        sizes[user.first_name] = random.randint(7, 15)  # Initialize with 0 or any default value
+        sizes[user.first_name] = random.randint(7, 12)  # Initialize with 0 or any default value
     write_data(chat_id, names, sizes)
 
     # # Schedule daily messages for this chat
@@ -54,10 +54,18 @@ async def dick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user.first_name in sizes:
         await update.message.reply_text(analyze_dick(user.first_name, sizes[user.first_name], sizes))
     else:
-        new_size = random.randint(7, 15)
+        new_size = random.randint(7, 12)
         sizes[user.first_name] = new_size
         write_data(chat_id, names, sizes)
         await update.message.reply_text(analyze_dick(user.first_name, sizes[user.first_name], sizes))
+
+async def dicks_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    _, sizes = read_data(chat_id)
+    if sizes:
+        await update.message.reply_text(morning_dick_sizes(sizes))
+    else:
+        await update.message.reply_text("No dicks in this chat.")
 
 def prompt_user_message(input, username) -> str:
     response = client.chat.completions.create(
@@ -113,9 +121,8 @@ def morning_dick_sizes(names_with_sizes) -> str:
         Especially you like jokes about genitalia size.
         You receive as input list of names and their sizes. And make jokes comparing them.
         """},
-        {"role": "user", "content": f"""Forecast the cock size in cm. But not more than 15cm.
-         What is dick size for {', '.join(names_with_sizes)}?
-         Start always from Good Morning! and then put your predictions"""}
+        {"role": "user", "content": f"""Analyze given dicks sizes and make joke on it. {', '.join(names_with_sizes)}?
+         Start always from Good Morning! and then put your predictions. Alway return {names_with_sizes} in response."""}
       ]
     )
     return response.choices[0].message.content
@@ -147,7 +154,7 @@ async def send_morning_message(context: CallbackContext) -> None:
     names, _ = read_data(CHAT_ID)
     names_with_sizes = {}
     for name in names:
-        names_with_sizes[name] = random.randint(7, 15)
+        names_with_sizes[name] = random.randint(7, 12)
     update_sizes(CHAT_ID, names_with_sizes)
 
     await context.bot.send_message(chat_id=CHAT_ID, text=morning_dick_sizes(names_with_sizes))
@@ -226,6 +233,7 @@ def init_bot():
     # Command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("dick", dick))
+    application.add_handler(CommandHandler("list", dicks_list))
 
     # Message handler
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

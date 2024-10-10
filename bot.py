@@ -207,15 +207,15 @@ def get_next_run_time(target_time):
     now = datetime.now()
     target = now.replace(hour=target_time.hour, minute=target_time.minute, second=0, microsecond=0)
     if target <= now:
-        target += timedelta(days=1)
+        target += timedelta(minutes=1)
     return (target - now).total_seconds()
 
 async def schedule_daily_job(context):
-    target_time = time(hour=8, minute=00)
-    next_run = get_next_run_time(target_time)
+    # target_time = time(hour=8, minute=00)
+    next_run = get_next_run_time(datetime.now())
     logger.info(f"Scheduling next run in {next_run} seconds")
     await send_morning_message(context)
-    context.job.schedule_removal()
+    # context.job.schedule_removal()
     context.job_queue.run_once(schedule_daily_job, next_run)
 
 def init_bot():
@@ -223,7 +223,8 @@ def init_bot():
 
     application = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
     
-    target_time = time(hour=8, minute=00)
+    # target_time = time(hour=22, minute=41)
+    target_time = datetime.now() + timedelta(minutes=1)
     first_run = get_next_run_time(target_time)
     logger.info(f"First run scheduled in {first_run} seconds")
     

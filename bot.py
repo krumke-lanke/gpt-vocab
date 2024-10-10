@@ -207,7 +207,7 @@ def get_next_run_time(target_time):
     now = datetime.now()
     target = now.replace(hour=target_time.hour, minute=target_time.minute, second=0, microsecond=0)
     if target <= now:
-        target += timedelta(minutes=1)
+        target += timedelta(days=1)
     return (target - now).total_seconds()
 
 async def schedule_daily_job(context):

@@ -211,7 +211,6 @@ def get_next_run_time(target_time):
     return (target - now).total_seconds()
 
 async def schedule_daily_job(context):
-    # target_time = time(hour=8, minute=00)
     next_run = get_next_run_time(datetime.now())
     logger.info(f"Scheduling next run in {next_run} seconds")
     await send_morning_message(context)
@@ -223,8 +222,7 @@ def init_bot():
 
     application = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
     
-    # target_time = time(hour=22, minute=41)
-    target_time = datetime.now() + timedelta(minutes=1)
+    target_time = time(hour=6, minute=00)
     first_run = get_next_run_time(target_time)
     logger.info(f"First run scheduled in {first_run} seconds")
     
